@@ -125,13 +125,14 @@ class GameSession(
         )
         val believers = aliveWithDayAction()
         if (believers.isEmpty()) {
-            delay(settings.dayDiscussionSeconds.seconds())
+            runCountdown(settings.dayDiscussionSeconds, "Обсуждение")
         } else {
             val beforeAction = settings.dayDiscussionSeconds - settings.believerWindowSeconds
-            if (beforeAction > 0) delay(beforeAction.seconds())
+            if (beforeAction > 0) runCountdown(beforeAction, "Обсуждение")
             openDayActionPanels(believers.filterNot { it.isBot })
             awaitPhaseEnd(
                 seconds = settings.believerWindowSeconds,
+                timerTitle = "Дневная активность",
                 botActions = believers.filter { it.isBot }.map { bot -> suspend { botDayTarget(bot) } }
             ) { dayTargets.size >= believers.size }
             closePanels()
@@ -154,13 +155,14 @@ class GameSession(
             chatId,
             buildString {
                 appendLine("🗳 <b>День $dayNumber. Голосование</b>")
-                appendLine("Каждый игрок получит кнопочную панель в личных сообщениях бота.")
+                appendLine("Каждый игрок получит кнопочную панель здесь, в эфемерном сообщении.")
                 appendLine("Время: ${settings.dayVoteSeconds} сек. При равенстве голосов никого не казнят.")
             }
         )
         openVotePanels()
         awaitPhaseEnd(
             seconds = settings.dayVoteSeconds,
+            timerTitle = "Голосование",
             botActions = voters.filter { it.isBot }.map { bot -> suspend { botVote(bot) } }
         ) { votes.size >= voters.size }
         closePanels()
@@ -225,13 +227,14 @@ class GameSession(
             chatId,
             buildString {
                 appendLine("🌙 <b>Ночь $dayNumber</b>")
-                appendLine("Город засыпает. Те, у кого есть ночное действие, получат панель выбора в личных сообщениях бота.")
+                appendLine("Город засыпает. Те, у кого есть ночное действие, получат панель выбора здесь, в эфемерном сообщении.")
                 appendLine("Время: ${settings.nightSeconds} сек.")
             }
         )
         openNightPanels(actors)
         awaitPhaseEnd(
             seconds = settings.nightSeconds,
+            timerTitle = "Ночь",
             botActions = actors.filter { it.isBot }.map { bot -> suspend { botNightTarget(bot) } }
         ) { nightTargets.size >= actors.size }
         closePanels()
@@ -258,8 +261,8 @@ class GameSession(
         resolution.checkResults.forEach { (actorId, result) ->
             if (BotPlayers.isBot(actorId)) return@forEach
             val verdict = if (result.canKill) "умеет убивать" else "не умеет убивать"
-            deps.gateway.sendPrivateMessage(
-                actorId,
+            deps.gateway.sendEphemeralMessage(
+                chatId, actorId,
                 "🔍 Результат проверки: <b>${nameOf(result.targetId)}</b> — $verdict."
             )
         }
@@ -372,7 +375,7 @@ class GameSession(
     }
 
     /**
-     * Replaces the personal action panel with the personal result: the keyboard disappears and
+     * Replaces the ephemeral action panel with the result: the keyboard disappears and
      * only the acting user sees what has been recorded.
      */
     private suspend fun respond(userId: Long, callbackQueryId: String, error: String?, successText: String) {
@@ -382,17 +385,20 @@ class GameSession(
         }
         deps.gateway.answerCallback(callbackQueryId)
         val panelId = mutex.withLock { panels[userId] }
-        val replaced = panelId != null && deps.gateway.editGroupMessage(
-            chatId = userId,
-            messageId = panelId,
+        val replaced = panelId != null && deps.gateway.editEphemeralMessage(
+            chatId = chatId,
+            userId = userId,
+            ephemeralMessageId = panelId,
             text = successText
         )
         if (replaced) return
-        val message = deps.gateway.sendPrivatePanel(
+        val message = deps.gateway.sendEphemeralMessage(
+            chatId = chatId,
             userId = userId,
-            text = successText
+            text = successText,
+            callbackQueryId = callbackQueryId
         )
-        rememberPanel(userId, message?.messageId)
+        rememberPanel(userId, message?.ephemeralMessageId)
     }
 
     // endregion
@@ -466,21 +472,22 @@ class GameSession(
         snapshot.forEach { (userId, _) ->
             if (BotPlayers.isBot(userId)) return@forEach
             if (userId in silenced) {
-                deps.gateway.sendPrivateMessage(
-                    userId,
+                deps.gateway.sendEphemeralMessage(
+                    chatId, userId,
                     "🤐 Босс мафии лишил вас голоса: на этом голосовании вы не голосуете."
                 )
                 return@forEach
             }
             val targets = snapshot.filter { it.first != userId }
-            val message = deps.gateway.sendPrivatePanel(
+            val message = deps.gateway.sendEphemeralMessage(
+                chatId = chatId,
                 userId = userId,
                 text = "🗳 <b>Голосование дня $dayNumber</b>\nВыберите, кого казнить:",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.Vote(gameId, id))
                 }
             )
-            rememberPanel(userId, message?.messageId)
+            rememberPanel(userId, message?.ephemeralMessageId)
         }
     }
 
@@ -490,14 +497,15 @@ class GameSession(
             if (actor.isBot) return@forEach
             val action = actor.role.nightAction ?: return@forEach
             val targets = snapshot.filter { actor.role.canTargetSelf || it.first != actor.userId }
-            val message = deps.gateway.sendPrivatePanel(
+            val message = deps.gateway.sendEphemeralMessage(
+                chatId = chatId,
                 userId = actor.userId,
                 text = "🌙 <b>${action.title}</b>\n${action.prompt}:",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.NightTarget(gameId, id))
                 }
             )
-            rememberPanel(actor.userId, message?.messageId)
+            rememberPanel(actor.userId, message?.ephemeralMessageId)
         }
     }
 
@@ -506,14 +514,15 @@ class GameSession(
         actors.forEach { actor ->
             val action = actor.role.dayAction ?: return@forEach
             val targets = snapshot.filter { actor.role.canTargetSelf || it.first != actor.userId }
-            val message = deps.gateway.sendPrivatePanel(
+            val message = deps.gateway.sendEphemeralMessage(
+                chatId = chatId,
                 userId = actor.userId,
                 text = "🙏 <b>${action.title}</b>\n${action.prompt} (${settings.believerWindowSeconds} сек):",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.DayTarget(gameId, id))
                 }
             )
-            rememberPanel(actor.userId, message?.messageId)
+            rememberPanel(actor.userId, message?.ephemeralMessageId)
         }
     }
 
@@ -524,8 +533,8 @@ class GameSession(
 
     private suspend fun closePanels() {
         val snapshot = mutex.withLock { panels.toMap().also { panels.clear() } }
-        snapshot.forEach { (userId, messageId) ->
-            deps.gateway.deleteMessage(userId, messageId)
+        snapshot.forEach { (userId, ephemeralMessageId) ->
+            deps.gateway.deleteEphemeralMessage(chatId, userId, ephemeralMessageId)
         }
     }
 
@@ -539,10 +548,12 @@ class GameSession(
      */
     private suspend fun awaitPhaseEnd(
         seconds: Int,
+        timerTitle: String? = null,
         botActions: List<suspend () -> Unit> = emptyList(),
         everyoneReady: () -> Boolean
     ) = coroutineScope {
         val botJobs = botActions.map { action -> launch { action() } }
+        val timerJob = if (timerTitle != null) launch { runCountdown(seconds, timerTitle) } else null
         val completion = CompletableDeferred<Unit>()
         mutex.withLock {
             phaseCompletion = completion
@@ -551,6 +562,22 @@ class GameSession(
         withTimeoutOrNull(seconds.seconds()) { completion.await() }
         mutex.withLock { phaseCompletion = null }
         botJobs.forEach { it.cancel() }
+        timerJob?.cancel()
+    }
+
+    private suspend fun runCountdown(seconds: Int, title: String) {
+        val message = deps.gateway.sendGroupMessage(chatId, "⏳ $title: $seconds сек") ?: return
+        val messageId = message.messageId
+        try {
+            for (remaining in seconds - 1 downTo 0) {
+                delay(1000)
+                deps.gateway.editGroupMessage(chatId, messageId, "⏳ $title: $remaining сек")
+            }
+        } finally {
+            withContext(NonCancellable) {
+                deps.gateway.deleteMessage(chatId, messageId)
+            }
+        }
     }
 
     private suspend fun completeIfEveryoneReady() {
@@ -581,7 +608,7 @@ class GameSession(
                     appendLine("${index + 1}. ${escapeHtml(player.name)}")
                 }
                 appendLine()
-                appendLine("Роли отправлены в личные сообщения. Удачи!")
+                appendLine("Роли отправлены в личные сообщения. Игровой UI — эфемерные сообщения в этом чате. Удачи!")
             }
         )
     }

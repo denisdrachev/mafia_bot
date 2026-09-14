@@ -45,7 +45,7 @@ mafia:
     day-vote-seconds: 10
     night-seconds: 10
     # Bot players added to every new game by default; changed per group via /settings buttons.
-    bot-count: 0
+    bot-count: 3
   roles:
     # Configurable "player count -> extra roles" table. Every remaining seat becomes a civilian.
     tables:

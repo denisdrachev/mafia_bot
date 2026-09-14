@@ -107,6 +107,7 @@ class UpdateHandler(
             "set" -> ifAdmin(chatId, user.id) { applySetting(chatId, args) }
             "roles" -> ifAdmin(chatId, user.id) { applyRoles(chatId, args) }
             "stats" -> gateway.sendGroupMessage(chatId, statsText(chatId))
+            "ef" -> gateway.sendEphemeralMessage(chatId, user.id, "👀 Это эфемерное сообщение — его видите только вы.")
             else -> Unit
         }
     }
@@ -273,6 +274,7 @@ class UpdateHandler(
         appendLine("/set &lt;параметр&gt; &lt;секунды&gt; — изменить настройку")
         appendLine("/roles [on|off РОЛЬ] — список и переключение ролей")
         appendLine("/stats — статистика игр в группе")
+        appendLine("/ef — отправить эфемерное сообщение (видно только вам)")
         appendLine()
         appendLine("Запускать игру, отменять её и менять настройки могут админы группы и инициатор сбора.")
         appendLine("Перед игрой нажмите Start в личке бота — туда придёт роль.")
