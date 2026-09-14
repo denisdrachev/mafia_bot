@@ -114,25 +114,25 @@ class GameSession(
             dayTargets.clear()
             blessedForVote = emptySet()
         }
-        deps.gateway.sendGroupMessage(
-            chatId,
-            buildString {
-                appendLine("☀️ <b>День $dayNumber. Обсуждение</b>")
-                appendLine("Время на обсуждение: ${settings.dayDiscussionSeconds} сек.")
-                appendLine()
-                append(alivePlayersBlock())
-            }
-        )
+        val announcementText = buildString {
+            appendLine("☀️ <b>День $dayNumber. Обсуждение</b>")
+            appendLine()
+            append(alivePlayersBlock())
+        }
+        val announcementMsg = deps.gateway.sendGroupMessage(chatId, announcementText)
+        val announcementId = announcementMsg?.messageId
         val believers = aliveWithDayAction()
         if (believers.isEmpty()) {
-            runCountdown(settings.dayDiscussionSeconds, "Обсуждение")
+            runCountdown(settings.dayDiscussionSeconds, "Обсуждение", announcementId, announcementText)
         } else {
             val beforeAction = settings.dayDiscussionSeconds - settings.believerWindowSeconds
-            if (beforeAction > 0) runCountdown(beforeAction, "Обсуждение")
+            if (beforeAction > 0) runCountdown(beforeAction, "Обсуждение", announcementId, announcementText)
             openDayActionPanels(believers.filterNot { it.isBot })
             awaitPhaseEnd(
                 seconds = settings.believerWindowSeconds,
                 timerTitle = "Дневная активность",
+                timerMessageId = announcementId,
+                timerBaseText = announcementText,
                 botActions = believers.filter { it.isBot }.map { bot -> suspend { botDayTarget(bot) } }
             ) { dayTargets.size >= believers.size }
             closePanels()
@@ -151,18 +151,18 @@ class GameSession(
             votes.clear()
             voters = alive().filter { it.userId !in silencedForVote }
         }
-        deps.gateway.sendGroupMessage(
-            chatId,
-            buildString {
-                appendLine("🗳 <b>День $dayNumber. Голосование</b>")
-                appendLine("Каждый игрок получит кнопочную панель здесь, в эфемерном сообщении.")
-                appendLine("Время: ${settings.dayVoteSeconds} сек. При равенстве голосов никого не казнят.")
-            }
-        )
+        val announcementText = buildString {
+            appendLine("🗳 <b>День $dayNumber. Голосование</b>")
+            appendLine("Каждый игрок получит кнопочную панель.")
+            appendLine("При равенстве голосов никого не казнят.")
+        }
+        val announcementMsg = deps.gateway.sendGroupMessage(chatId, announcementText)
         openVotePanels()
         awaitPhaseEnd(
             seconds = settings.dayVoteSeconds,
             timerTitle = "Голосование",
+            timerMessageId = announcementMsg?.messageId,
+            timerBaseText = announcementText,
             botActions = voters.filter { it.isBot }.map { bot -> suspend { botVote(bot) } }
         ) { votes.size >= voters.size }
         closePanels()
@@ -223,18 +223,17 @@ class GameSession(
             nightTargets.clear()
             actors = aliveWithNightAction()
         }
-        deps.gateway.sendGroupMessage(
-            chatId,
-            buildString {
-                appendLine("🌙 <b>Ночь $dayNumber</b>")
-                appendLine("Город засыпает. Те, у кого есть ночное действие, получат панель выбора здесь, в эфемерном сообщении.")
-                appendLine("Время: ${settings.nightSeconds} сек.")
-            }
-        )
+        val announcementText = buildString {
+            appendLine("🌙 <b>Ночь $dayNumber</b>")
+            appendLine("Город засыпает. Те, у кого есть ночное действие, получат панель выбора.")
+        }
+        val announcementMsg = deps.gateway.sendGroupMessage(chatId, announcementText)
         openNightPanels(actors)
         awaitPhaseEnd(
             seconds = settings.nightSeconds,
             timerTitle = "Ночь",
+            timerMessageId = announcementMsg?.messageId,
+            timerBaseText = announcementText,
             botActions = actors.filter { it.isBot }.map { bot -> suspend { botNightTarget(bot) } }
         ) { nightTargets.size >= actors.size }
         closePanels()
@@ -391,14 +390,16 @@ class GameSession(
             ephemeralMessageId = panelId,
             text = successText
         )
-        if (replaced) return
-        val message = deps.gateway.sendEphemeralMessage(
+        if (replaced) {
+            mutex.withLock { panels.remove(userId) }
+            return
+        }
+        deps.gateway.sendEphemeralMessage(
             chatId = chatId,
             userId = userId,
             text = successText,
             callbackQueryId = callbackQueryId
         )
-        rememberPanel(userId, message?.ephemeralMessageId)
     }
 
     // endregion
@@ -549,11 +550,13 @@ class GameSession(
     private suspend fun awaitPhaseEnd(
         seconds: Int,
         timerTitle: String? = null,
+        timerMessageId: Int? = null,
+        timerBaseText: String? = null,
         botActions: List<suspend () -> Unit> = emptyList(),
         everyoneReady: () -> Boolean
     ) = coroutineScope {
         val botJobs = botActions.map { action -> launch { action() } }
-        val timerJob = if (timerTitle != null) launch { runCountdown(seconds, timerTitle) } else null
+        val timerJob = if (timerTitle != null) launch { runCountdown(seconds, timerTitle, timerMessageId, timerBaseText) } else null
         val completion = CompletableDeferred<Unit>()
         mutex.withLock {
             phaseCompletion = completion
@@ -565,19 +568,43 @@ class GameSession(
         timerJob?.cancel()
     }
 
-    private suspend fun runCountdown(seconds: Int, title: String) {
-        val message = deps.gateway.sendGroupMessage(chatId, "⏳ $title: $seconds сек") ?: return
-        val messageId = message.messageId
+    private suspend fun runCountdown(
+        seconds: Int,
+        title: String,
+        messageId: Int? = null,
+        baseText: String? = null
+    ) {
+        val total = seconds
+        val targetId = messageId ?: run {
+            val msg = deps.gateway.sendGroupMessage(chatId, countdownText(title, total, total, baseText)) ?: return
+            msg.messageId
+        }
+        if (messageId != null) {
+            deps.gateway.editGroupMessage(chatId, targetId, countdownText(title, total, total, baseText))
+        }
         try {
-            for (remaining in seconds - 1 downTo 0) {
-                delay(1000)
-                deps.gateway.editGroupMessage(chatId, messageId, "⏳ $title: $remaining сек")
+            var remaining = total
+            while (remaining > 0) {
+                val step = remaining.coerceAtMost(5)
+                delay(step * 1000L)
+                remaining -= step
+                deps.gateway.editGroupMessage(chatId, targetId, countdownText(title, remaining.coerceAtLeast(0), total, baseText))
             }
         } finally {
-            withContext(NonCancellable) {
-                deps.gateway.deleteMessage(chatId, messageId)
+            if (messageId == null) {
+                withContext(NonCancellable) {
+                    deps.gateway.deleteMessage(chatId, targetId)
+                }
             }
         }
+    }
+
+    private fun countdownText(title: String, remaining: Int, total: Int, baseText: String? = null): String {
+        val bars = 10
+        val filled = if (total == 0) 0 else (remaining * bars / total)
+        val bar = "█".repeat(filled) + "░".repeat(bars - filled)
+        val timerLine = "⏳ $title: $bar $remaining сек"
+        return if (baseText != null) "$baseText\n\n$timerLine" else timerLine
     }
 
     private suspend fun completeIfEveryoneReady() {
@@ -608,7 +635,7 @@ class GameSession(
                     appendLine("${index + 1}. ${escapeHtml(player.name)}")
                 }
                 appendLine()
-                appendLine("Роли отправлены в личные сообщения. Игровой UI — эфемерные сообщения в этом чате. Удачи!")
+                appendLine("Роли отправлены в личные сообщения. Удачи!")
             }
         )
     }

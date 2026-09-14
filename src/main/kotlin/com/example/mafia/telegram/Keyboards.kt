@@ -13,6 +13,11 @@ object Keyboards {
                 button("🚪 Выйти", CallbackData.encode(CallbackData.LobbyLeave(chatId)))
             )
         )
+        .keyboardRow(
+            InlineKeyboardRow(
+                button("▶️ Старт", CallbackData.encode(CallbackData.LobbyStart(chatId)))
+            )
+        )
         .build()
 
     fun targets(targets: List<Pair<Long, String>>, encode: (Long) -> String): InlineKeyboardMarkup {

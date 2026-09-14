@@ -140,6 +140,7 @@ class GameManager(
             if (!auto) gateway.sendGroupMessage(chatId, "⚠️ Сейчас нет активного сбора. Начните его командой /gather.")
             return
         }
+        lobby.timerJob?.cancel()
         val players = lock(chatId).withLock { lobby.players.values.toList() }
         val bots = players.filter { BotPlayers.isBot(it.userId) }
         val humans = players.size - bots.size
@@ -159,6 +160,7 @@ class GameManager(
     suspend fun cancel(chatId: Long): String {
         val lobby = lobbies[chatId]
         if (lobby != null) {
+            lobby.timerJob?.cancel()
             closeLobby(chatId, "отменён вручную")
             return "🚫 Сбор игроков отменён."
         }
@@ -210,7 +212,6 @@ class GameManager(
 
     private suspend fun closeLobby(chatId: Long, result: String) {
         val lobby = lock(chatId).withLock { lobbies.remove(chatId) } ?: return
-        lobby.timerJob?.cancel()
         metrics.lobbyClosed(result)
         val players = lobby.players.values.toList()
         lobby.messageId?.let { messageId ->

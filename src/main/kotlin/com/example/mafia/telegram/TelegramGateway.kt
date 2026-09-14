@@ -1,6 +1,7 @@
 package com.example.mafia.telegram
 
 import com.example.mafia.metrics.MafiaMetrics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.future.await
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -37,6 +38,8 @@ class TelegramGateway(
     suspend fun <T : Serializable, M : BotApiMethod<T>> execute(method: M, errorType: String): T? =
         try {
             client.executeAsync(method).await()
+        } catch (ex: CancellationException) {
+            throw ex
         } catch (ex: Exception) {
             metrics.error(errorType, ex)
             log.warn("Не удалось выполнить {}: {}", method.method, ex.message)

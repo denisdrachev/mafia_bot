@@ -1,0 +1,165 @@
+# Mafia Bot — Current Work Context
+
+## User's Two Issues to Fix
+
+1. **Day voting buttons not appearing** — "при голосовании днем не появляются кнопки для голосования"
+2. **Set default waiting times to 10 seconds** for: player gathering, day voting, day discussion, night selection
+
+## Issue 1: Day Voting Buttons Not Appearing
+
+### Key Files
+- `src/main/kotlin/com/example/mafia/game/GameSession.kt` — game loop, voting phases, panel management
+- `src/main/kotlin/com/example/mafia/telegram/TelegramGateway.kt` — sends ephemeral messages with inline keyboards
+- `src/main/kotlin/com/example/mafia/telegram/Keyboards.kt` — builds InlineKeyboardMarkup for vote targets
+- `src/main/kotlin/com/example/mafia/telegram/CallbackData.kt` — encodes/decodes button callback data
+- `src/main/kotlin/com/example/mafia/telegram/UpdateHandler.kt` — handles incoming callbacks and commands
+
+### How Voting Works (Day Phase)
+1. `runDayVote()` (GameSession.kt:145) sets phase to `DAY_VOTE`, clears votes, gets voters (alive players not silenced)
+2. Sends group message announcing voting phase
+3. Calls `openVotePanels()` (line 161)
+4. `openVotePanels()` (line 467):
+   - Gets snapshot of alive players (userId -> name pairs)
+   - Gets silenced set
+   - For each alive non-bot player:
+     - If silenced: sends ephemeral text message (no buttons)
+     - Otherwise: sends ephemeral message with `Keyboards.targets(targets)` inline keyboard
+     - Calls `rememberPanel(userId, message?.ephemeralMessageId)`
+5. `awaitPhaseEnd()` waits for all votes or timeout (`settings.dayVoteSeconds`)
+6. `closePanels()` deletes all ephemeral messages
+
+### `sendEphemeralMessage` (TelegramGateway.kt:72)
+- Uses `SendMessage.builder()` with:
+  - `chatId`, `text`, `parseMode("HTML")`
+  - `replyMarkup(markup)` if markup provided
+  - `ephemeralMessageParameters` with `receiverUserId` and optional `callbackQueryId`
+- Returns `Message?` (nullable — failures are caught and return null)
+- The `Message` class has `ephemeralMessageId: Integer?` field
+
+### Potential Causes Investigated
+- **Library validation**: `SendMessage.validate()` does NOT conflict between `replyMarkup` and `ephemeralMessageParameters` — both are independently validated, no mutual exclusion
+- **Telegram API**: `sendMessage` supports `reply_markup` (InlineKeyboardMarkup) together with `ephemeral_message_parameters` — confirmed from Bot API docs
+- **Known Telegram client bug**: GitHub issue tdesktop#29497 reports inline keyboards not displayed in some Telegram Desktop versions (fixed in 5.16.1)
+- **`message?.ephemeralMessageId`**: If `sendEphemeralMessage` returns null (API error), `rememberPanel` does nothing (line 529: `if (ephemeralMessageId == null) return`)
+- **Error swallowing**: `TelegramGateway.execute()` catches ALL exceptions, logs as warning, returns null — so API errors are silently swallowed
+- **Timing**: With 10-second phases, `closePanels()` could delete panels very quickly after opening them, but this would only affect slow delivery, not button rendering
+
+### Not Yet Determined
+- Need to check if the Telegram Bot API actually returns `ephemeral_message_id` in the response `Message` when sending an ephemeral message with `sendMessage`
+- Need to check if there's a bot API version mismatch or if the bot token's API version doesn't support ephemeral messages
+- The `execute()` method swallows errors — should add more logging or check if the API call is actually succeeding
+- Possible that the bot needs to be an admin in the group, or ephemeral messages require specific permissions
+
+### Next Steps for Issue 1
+- Check if `sendEphemeralMessage` is actually succeeding or silently failing
+- Consider adding debug logging to see the API response
+- Verify the bot's API version supports ephemeral messages (Bot API 10.3+)
+- Consider falling back to regular group messages with inline keyboards if ephemeral messages fail
+
+## Issue 2: Default Timing Values (10 seconds)
+
+### Current State — Already Set to 10 Seconds
+- `application.yaml` (lines 42-46): `gather-seconds: 10`, `day-discussion-seconds: 10`, `day-vote-seconds: 10`, `night-seconds: 10`
+- `MafiaProperties.kt` — `DefaultsProperties` data class with defaults of 10 seconds
+- `GroupSettingsEntity` in `Entities.kt` — DB column defaults set to 10
+- `GroupSettingsStore` uses `properties.defaults` when creating new group settings
+- `GameSettings.kt` — validates values against `SettingKey` min/max ranges
+
+### Key Files
+- `src/main/resources/application.yaml` — config defaults
+- `src/main/kotlin/com/example/mafia/settings/MafiaProperties.kt` — `DefaultsProperties`
+- `src/main/kotlin/com/example/mafia/settings/GameSettings.kt` — `SettingKey` enum with min/max, `GameSettings` data class
+- `src/main/kotlin/com/example/mafia/settings/GroupSettingsService.kt` — `GroupSettingsStore`
+- `src/main/kotlin/com/example/mafia/db/Entities.kt` — `GroupSettingsEntity`
+
+### SettingKey Constraints (from GameSettings.kt)
+- `GATHER`: min=10, max=300
+- `DAY`: min=10, max=300
+- `VOTE`: min=10, max=120
+- `NIGHT`: min=10, max=120
+- `BELIEVER_WINDOW_SECONDS` = 5 (constant, not configurable)
+- Day discussion must be > BELIEVER_WINDOW_SECONDS (5 sec)
+
+### Status
+- All default values already appear to be set to 10 seconds in config, code, and DB defaults
+- Need to verify `GameSettings.kt` and `GroupSettingsService.kt` to confirm propagation
+
+## Library Info
+- `telegrambots-client` 10.3.0
+- `telegrambots-meta` 10.3.0
+- `SendMessage` supports `ephemeralMessageParameters` and `replyMarkup` simultaneously
+- `EphemeralMessageParameters` requires `receiverUserId` (non-null), `callbackQueryId` and `replaceCallbackQueryMessage` optional
+- `Message` class has `ephemeralMessageId: Integer?` field
+
+## Completed Work
+
+### 1. Added `/ef` command (ephemeral message test)
+- `UpdateHandler.kt:110` — `"ef" -> gateway.sendEphemeralMessage(chatId, user.id, "👀 Это эфемерное сообщение — его видите только вы.")`
+- `UpdateHandler.kt:277` — added to `helpText()`
+- `README.md:59` — added to commands table
+- Available to all users in group chats; sends an ephemeral message visible only to the caller
+
+### 2. Migrated voting, night actions, and day actions from private messages to ephemeral messages
+All changes in `GameSession.kt`:
+
+- **`openVotePanels()`** — `sendPrivatePanel` → `sendEphemeralMessage`; silenced players get ephemeral text (was `sendPrivateMessage`); stores `ephemeralMessageId`
+- **`openNightPanels()`** — `sendPrivatePanel` → `sendEphemeralMessage`; stores `ephemeralMessageId`
+- **`openDayActionPanels()`** — `sendPrivatePanel` → `sendEphemeralMessage`; stores `ephemeralMessageId`
+- **`respond()`** — `editGroupMessage` + fallback `sendPrivatePanel` → `editEphemeralMessage` + fallback `sendEphemeralMessage` (with `callbackQueryId` for panel replacement); stores `ephemeralMessageId`
+- **`closePanels()`** — `deleteMessage(userId, messageId)` → `deleteEphemeralMessage(chatId, userId, ephemeralMessageId)`
+- **Commissar check result** — `sendPrivateMessage(actorId, ...)` → `sendEphemeralMessage(chatId, actorId, ...)`
+- **Group announcement texts** — updated: "в личных сообщениях бота" → "здесь, в эфемерном сообщении" (day vote, night)
+- **`announceStart()`** — updated to mention ephemeral messages for game UI
+- `README.md:10` — updated: roles still via private messages, but voting/night/day actions are ephemeral
+
+### What was NOT changed
+- `sendRolesToPlayers()` — roles still sent via `sendPrivateMessage` (one-time delivery, not game UI)
+- `sendPrivateMessage` and `sendPrivatePanel` methods in `TelegramGateway.kt` — still exist, used for role delivery
+- `handlePrivateCommand()` in `UpdateHandler.kt` — private chat commands still use `sendPrivateMessage`
+
+### Key architectural note
+- `panels: HashMap<Long, Int>` now stores `ephemeralMessageId` (was `messageId` for private messages)
+- `closePanels()` uses `chatId` (group chat) + `userId` + `ephemeralMessageId` to delete ephemeral messages
+- `respond()` passes `callbackQueryId` to `sendEphemeralMessage` fallback so it replaces the callback query's ephemeral message
+- `respond()` removes panel from `panels` map after successful `editEphemeralMessage` — `closePanels()` won't delete confirmed choice messages
+- Fallback `sendEphemeralMessage` in `respond()` does NOT call `rememberPanel()` — message persists for the user
+
+### 3. Countdown timer with progress bar (all game phases)
+All changes in `GameSession.kt`:
+
+- **`runCountdown(seconds, title, messageId?, baseText?)`** — sends/edits a group message with emoji progress bar (10 blocks `█`/`░`), updated every 5 seconds (not every 1 sec — reduces API calls)
+- **`countdownText(title, remaining, total, baseText?)`** — formats `⏳ Title: ████░░░░░░ N сек`; if `baseText` provided, prepends it (announcement text + timer in same message)
+- **`awaitPhaseEnd()`** — new params `timerTitle`, `timerMessageId`, `timerBaseText`; launches `runCountdown` in parallel with bot actions; cancels timer job when phase ends early
+- **Timer in announcement message**: `runDayVote`, `runNight`, `runDayDiscussion` now send the announcement message first, capture `messageId`, and pass it to `runCountdown`/`awaitPhaseEnd` — timer bar is appended to the same message via `editGroupMessage`
+- **Immediate first edit**: when `messageId` is provided, `runCountdown` immediately edits the message to show full progress bar (doesn't wait 5 seconds)
+- **Standalone timer**: when `messageId` is null, `runCountdown` creates a separate message and deletes it in `finally` (with `NonCancellable`)
+- Timer covers: day discussion (full duration + believer window), day vote, night
+
+### 4. CancellationException fix in TelegramGateway
+- `TelegramGateway.execute()` was catching ALL `Exception` including `CancellationException` — caused `StandaloneCoroutine was cancelled` warnings and prevented proper coroutine cancellation
+- Fix: added `catch (ex: CancellationException) { throw ex }` before the generic `catch (ex: Exception)` — standard Kotlin coroutines practice
+
+### 5. Lobby "Start" button + timer self-cancellation fix
+Changes across `CallbackData.kt`, `Keyboards.kt`, `UpdateHandler.kt`, `GameManager.kt`:
+
+- **`CallbackData.LobbyStart(chatId)`** — new callback type, code `"ls"`
+- **`Keyboards.lobby()`** — added second row with `▶️ Старт` button
+- **`UpdateHandler.handleCallback()`** — `LobbyStart` calls `manager.finishGathering(chatId, auto = false)`
+- **Lobby timer self-cancellation bug**: `closeLobby()` called `lobby.timerJob?.cancel()`, but when `finishGathering(auto=true)` was called FROM the timer coroutine, it cancelled itself before `startGame()` could run — game never started after gather timer expired
+- Fix: moved `lobby.timerJob?.cancel()` from `closeLobby()` into `finishGathering()` and `cancel()` — called BEFORE `closeLobby()`, so the timer is cancelled by the parent context, not self-cancelled
+
+### 6. Removed ephemeral message mentions from user-facing text
+- `runDayVote` announcement: "кнопочную панель здесь, в эфемерном сообщении" → "кнопочную панель"
+- `runNight` announcement: "панель выбора здесь, в эфемерном сообщении" → "панель выбора"
+- `announceStart`: "Игровой UI — эфемерные сообщения в этом чате" → removed
+- Removed "Время: N сек." lines from announcements — timer shows remaining time instead
+
+## Build/Test
+- Maven project (pom.xml)
+- Kotlin + Spring Boot
+- Tests in `src/test/kotlin/`
+- `GameSettingsTest.kt` validates settings ranges and callback data encoding
+- `GroupSettingsPersistenceTest.kt` tests DB persistence
+- `mvn compile` — passes after all changes
+- `mvn test` — all tests pass after all changes
+- `mvn clean verify` — passes (full build + tests)

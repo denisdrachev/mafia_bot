@@ -46,6 +46,7 @@ class UpdateHandler(
         when (data) {
             is CallbackData.LobbyJoin -> manager.joinLobby(data.chatId, user.toPlayerRef(), query.id)
             is CallbackData.LobbyLeave -> manager.leaveLobby(data.chatId, user.id, query.id)
+            is CallbackData.LobbyStart -> manager.finishGathering(data.chatId, auto = false)
             is CallbackData.Vote -> withSession(query.id, data.gameId) { it.onVote(user.id, query.id, data.targetId) }
             is CallbackData.NightTarget -> withSession(query.id, data.gameId) {
                 it.onNightTarget(user.id, query.id, data.targetId)
