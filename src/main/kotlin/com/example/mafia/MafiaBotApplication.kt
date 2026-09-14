@@ -8,5 +8,4 @@ class MafiaBotApplication
 
 fun main(args: Array<String>) {
     runApplication<MafiaBotApplication>(*args)
-
 }

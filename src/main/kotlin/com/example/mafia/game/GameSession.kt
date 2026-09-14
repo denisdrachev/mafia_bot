@@ -154,7 +154,7 @@ class GameSession(
             chatId,
             buildString {
                 appendLine("🗳 <b>День $dayNumber. Голосование</b>")
-                appendLine("У каждого игрока ниже появится личная кнопочная панель, видимая только ему.")
+                appendLine("Каждый игрок получит кнопочную панель в личных сообщениях бота.")
                 appendLine("Время: ${settings.dayVoteSeconds} сек. При равенстве голосов никого не казнят.")
             }
         )
@@ -225,7 +225,7 @@ class GameSession(
             chatId,
             buildString {
                 appendLine("🌙 <b>Ночь $dayNumber</b>")
-                appendLine("Город засыпает. Те, у кого есть ночное действие, получат личную панель выбора.")
+                appendLine("Город засыпает. Те, у кого есть ночное действие, получат панель выбора в личных сообщениях бота.")
                 appendLine("Время: ${settings.nightSeconds} сек.")
             }
         )
@@ -258,10 +258,9 @@ class GameSession(
         resolution.checkResults.forEach { (actorId, result) ->
             if (BotPlayers.isBot(actorId)) return@forEach
             val verdict = if (result.canKill) "умеет убивать" else "не умеет убивать"
-            deps.gateway.sendEphemeralMessage(
-                chatId = chatId,
-                userId = actorId,
-                text = "🔍 Результат проверки: <b>${nameOf(result.targetId)}</b> — $verdict."
+            deps.gateway.sendPrivateMessage(
+                actorId,
+                "🔍 Результат проверки: <b>${nameOf(result.targetId)}</b> — $verdict."
             )
         }
         deps.gateway.sendGroupMessage(
@@ -383,20 +382,17 @@ class GameSession(
         }
         deps.gateway.answerCallback(callbackQueryId)
         val panelId = mutex.withLock { panels[userId] }
-        val replaced = panelId != null && deps.gateway.editEphemeralMessage(
-            chatId = chatId,
-            userId = userId,
-            ephemeralMessageId = panelId,
+        val replaced = panelId != null && deps.gateway.editGroupMessage(
+            chatId = userId,
+            messageId = panelId,
             text = successText
         )
         if (replaced) return
-        val message = deps.gateway.sendEphemeralMessage(
-            chatId = chatId,
+        val message = deps.gateway.sendPrivatePanel(
             userId = userId,
-            text = successText,
-            callbackQueryId = callbackQueryId
+            text = successText
         )
-        rememberPanel(userId, message?.ephemeralMessageId)
+        rememberPanel(userId, message?.messageId)
     }
 
     // endregion
@@ -470,23 +466,21 @@ class GameSession(
         snapshot.forEach { (userId, _) ->
             if (BotPlayers.isBot(userId)) return@forEach
             if (userId in silenced) {
-                deps.gateway.sendEphemeralMessage(
-                    chatId = chatId,
-                    userId = userId,
-                    text = "🤐 Босс мафии лишил вас голоса: на этом голосовании вы не голосуете."
+                deps.gateway.sendPrivateMessage(
+                    userId,
+                    "🤐 Босс мафии лишил вас голоса: на этом голосовании вы не голосуете."
                 )
                 return@forEach
             }
             val targets = snapshot.filter { it.first != userId }
-            val message = deps.gateway.sendEphemeralMessage(
-                chatId = chatId,
+            val message = deps.gateway.sendPrivatePanel(
                 userId = userId,
                 text = "🗳 <b>Голосование дня $dayNumber</b>\nВыберите, кого казнить:",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.Vote(gameId, id))
                 }
             )
-            rememberPanel(userId, message?.ephemeralMessageId)
+            rememberPanel(userId, message?.messageId)
         }
     }
 
@@ -496,15 +490,14 @@ class GameSession(
             if (actor.isBot) return@forEach
             val action = actor.role.nightAction ?: return@forEach
             val targets = snapshot.filter { actor.role.canTargetSelf || it.first != actor.userId }
-            val message = deps.gateway.sendEphemeralMessage(
-                chatId = chatId,
+            val message = deps.gateway.sendPrivatePanel(
                 userId = actor.userId,
                 text = "🌙 <b>${action.title}</b>\n${action.prompt}:",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.NightTarget(gameId, id))
                 }
             )
-            rememberPanel(actor.userId, message?.ephemeralMessageId)
+            rememberPanel(actor.userId, message?.messageId)
         }
     }
 
@@ -513,27 +506,26 @@ class GameSession(
         actors.forEach { actor ->
             val action = actor.role.dayAction ?: return@forEach
             val targets = snapshot.filter { actor.role.canTargetSelf || it.first != actor.userId }
-            val message = deps.gateway.sendEphemeralMessage(
-                chatId = chatId,
+            val message = deps.gateway.sendPrivatePanel(
                 userId = actor.userId,
                 text = "🙏 <b>${action.title}</b>\n${action.prompt} (${settings.believerWindowSeconds} сек):",
                 markup = Keyboards.targets(targets) { id ->
                     CallbackData.encode(CallbackData.DayTarget(gameId, id))
                 }
             )
-            rememberPanel(actor.userId, message?.ephemeralMessageId)
+            rememberPanel(actor.userId, message?.messageId)
         }
     }
 
-    private suspend fun rememberPanel(userId: Long, ephemeralMessageId: Int?) {
-        if (ephemeralMessageId == null) return
-        mutex.withLock { panels[userId] = ephemeralMessageId }
+    private suspend fun rememberPanel(userId: Long, messageId: Int?) {
+        if (messageId == null) return
+        mutex.withLock { panels[userId] = messageId }
     }
 
     private suspend fun closePanels() {
         val snapshot = mutex.withLock { panels.toMap().also { panels.clear() } }
         snapshot.forEach { (userId, messageId) ->
-            deps.gateway.deleteEphemeralMessage(chatId, userId, messageId)
+            deps.gateway.deleteMessage(userId, messageId)
         }
     }
 
@@ -614,7 +606,7 @@ class GameSession(
                 appendLine("Игра идёт в чате: ${escapeHtml(chatTitle ?: "группа")}")
             }
             if (!deps.gateway.sendPrivateMessage(player.userId, text)) {
-                deps.gateway.sendEphemeralMessage(chatId, player.userId, text)
+                deps.gateway.sendGroupMessage(chatId, "⚠️ Не удалось отправить роль в личку @${player.name}. Напишите боту /start и попросите админа перезапустить игру.")
             }
         }
     }

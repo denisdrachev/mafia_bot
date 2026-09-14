@@ -25,14 +25,14 @@ class TelegramConfig(
 //            .build()
 //    }
 
-    @Bean
-    fun telegramUrl(): TelegramUrl {
-        return TelegramUrl.builder()
-            .schema("https") // или "https"
-            .host("shy-bonus-c3df.matcha0aamxqo91.workers.dev") // ваш хост, например, "my-bot-api-server.com"
-            .port(443) // порт вашего локального Bot API сервера
-            .build()
-    }
+//    @Bean
+//    fun telegramUrl(): TelegramUrl {
+//        return TelegramUrl.builder()
+//            .schema("https") // или "https"
+//            .host("shy-bonus-c3df.matcha0aamxqo91.workers.dev") // ваш хост, например, "my-bot-api-server.com"
+//            .port(443) // порт вашего локального Bot API сервера
+//            .build()
+//    }
 
     @Bean
     fun telegramClient(/*okHttpClient: OkHttpClient, */properties: MafiaProperties): TelegramClient {
@@ -45,6 +45,7 @@ class TelegramConfig(
             .host("shy-bonus-c3df.matcha0aamxqo91.workers.dev") // ваш хост, например, "my-bot-api-server.com"
             .port(443) // порт вашего локального Bot API сервера
             .build()
-        return OkHttpTelegramClient(/*okHttpClient, */properties.bot.token, customUrl)
+//        return OkHttpTelegramClient(/*okHttpClient, */properties.bot.token, customUrl)
+        return OkHttpTelegramClient(properties.bot.token)
     }
 }

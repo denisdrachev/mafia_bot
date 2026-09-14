@@ -85,8 +85,10 @@ class GameManager(
             }
             val lobby = Lobby(chatId, chatTitle, initiator.userId, settings)
             lobbies[chatId] = lobby
+            val bots = BotPlayers.create(settings.botCount)
+            bots.forEach { lobby.players[it.userId] = it }
             metrics.lobbyOpened()
-            val message = gateway.sendGroupMessage(chatId, lobbyText(lobby, emptyList()), Keyboards.lobby(chatId))
+            val message = gateway.sendGroupMessage(chatId, lobbyText(lobby, bots), Keyboards.lobby(chatId))
             lobby.messageId = message?.messageId
             lobby.timerJob = scope.launch {
                 delay(settings.gatherSeconds * 1000L)
@@ -138,15 +140,15 @@ class GameManager(
             if (!auto) gateway.sendGroupMessage(chatId, "⚠️ Сейчас нет активного сбора. Начните его командой /gather.")
             return
         }
-        val humans = lock(chatId).withLock { lobby.players.values.toList() }
-        val bots = BotPlayers.create(lobby.settings.botCount)
-        val players = humans + bots
+        val players = lock(chatId).withLock { lobby.players.values.toList() }
+        val bots = players.filter { BotPlayers.isBot(it.userId) }
+        val humans = players.size - bots.size
         if (players.size < minPlayers()) {
             closeLobby(chatId, "недобор игроков")
             gateway.sendGroupMessage(
                 chatId,
                 "🚫 Сбор отменён: набралось ${players.size} из ${minPlayers()} необходимых игроков " +
-                    "(живых: ${humans.size}, ботов: ${bots.size})."
+                    "(живых: $humans, ботов: ${bots.size})."
             )
             return
         }
@@ -227,7 +229,7 @@ class GameManager(
         if (!closed) {
             appendLine("Время сбора: ${lobby.settings.gatherSeconds} сек. Минимум игроков: ${minPlayers()}.")
             if (lobby.settings.botCount > 0) {
-                appendLine("К игре добавятся игроки-боты: ${lobby.settings.botCount}.")
+                appendLine("В игре уже участвуют боты: ${lobby.settings.botCount}.")
             }
             appendLine("Важно: нажмите Start в личке бота, иначе роль не придёт.")
         }

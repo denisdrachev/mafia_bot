@@ -40,10 +40,10 @@ mafia:
     token: "8789997945:AAE6v34hQ06n1LKgBeyYXEh7WYXBneTLT_w" #${TELEGRAM_BOT_TOKEN:}
     username: "IiMafoBot" #${TELEGRAM_BOT_USERNAME:}
   defaults:
-    gather-seconds: 120
-    day-discussion-seconds: 90
-    day-vote-seconds: 60
-    night-seconds: 45
+    gather-seconds: 10
+    day-discussion-seconds: 10
+    day-vote-seconds: 10
+    night-seconds: 10
     # Bot players added to every new game by default; changed per group via /settings buttons.
     bot-count: 0
   roles:

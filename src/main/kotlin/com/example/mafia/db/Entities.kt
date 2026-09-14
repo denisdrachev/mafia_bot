@@ -28,16 +28,16 @@ class GroupSettingsEntity(
     var chatTitle: String? = null,
 
     @Column(name = "gather_seconds", nullable = false)
-    var gatherSeconds: Int = 120,
+    var gatherSeconds: Int = 10,
 
     @Column(name = "day_discussion_seconds", nullable = false)
-    var dayDiscussionSeconds: Int = 90,
+    var dayDiscussionSeconds: Int = 10,
 
     @Column(name = "day_vote_seconds", nullable = false)
-    var dayVoteSeconds: Int = 60,
+    var dayVoteSeconds: Int = 10,
 
     @Column(name = "night_seconds", nullable = false)
-    var nightSeconds: Int = 45,
+    var nightSeconds: Int = 10,
 
     @Column(name = "bot_count", nullable = false)
     var botCount: Int = 0,

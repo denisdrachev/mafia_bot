@@ -10,6 +10,7 @@ import org.telegram.telegrambots.meta.api.methods.botapimethods.BotApiMethod
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteEphemeralMessage
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditEphemeralMessageText
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText
 import org.telegram.telegrambots.meta.api.objects.ephemeral.EphemeralMessageParameters
@@ -64,6 +65,20 @@ class TelegramGateway(
             .build(),
         "telegram_send_private"
     ) != null
+
+    suspend fun sendPrivatePanel(
+        userId: Long,
+        text: String,
+        markup: InlineKeyboardMarkup? = null
+    ): Message? = execute(
+        SendMessage.builder()
+            .chatId(userId)
+            .text(text)
+            .parseMode(PARSE_MODE)
+            .apply { markup?.let { replyMarkup(it) } }
+            .build(),
+        "telegram_send_private"
+    )
 
     /**
      * Sends an ephemeral message visible to a single user inside the group chat (Bot API 10.3+).
@@ -122,6 +137,14 @@ class TelegramGateway(
             .ephemeralMessageId(ephemeralMessageId)
             .build(),
         "telegram_delete_ephemeral"
+    ) == true
+
+    suspend fun deleteMessage(chatId: Long, messageId: Int): Boolean = execute(
+        DeleteMessage.builder()
+            .chatId(chatId.toString())
+            .messageId(messageId)
+            .build(),
+        "telegram_delete_message"
     ) == true
 
     suspend fun editGroupMessage(

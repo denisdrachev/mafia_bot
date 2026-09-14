@@ -15,16 +15,6 @@ object Keyboards {
         )
         .build()
 
-    fun settings(chatId: Long, botCount: Int): InlineKeyboardMarkup = InlineKeyboardMarkup.builder()
-        .keyboardRow(
-            InlineKeyboardRow(
-                button("➖", CallbackData.encode(CallbackData.SettingsBots(chatId, botCount-1))),
-                button("🤖 ботов: $botCount", CallbackData.encode(CallbackData.SettingsBots(chatId, 0))),
-                button("➕", CallbackData.encode(CallbackData.SettingsBots(chatId, botCount + 1)))
-            )
-        )
-        .build()
-
     fun targets(targets: List<Pair<Long, String>>, encode: (Long) -> String): InlineKeyboardMarkup {
         val rows = targets.map { (id, name) ->
             InlineKeyboardRow(button(name, encode(id)))

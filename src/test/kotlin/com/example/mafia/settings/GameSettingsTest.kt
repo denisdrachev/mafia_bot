@@ -18,7 +18,7 @@ class GameSettingsTest {
             GameSettings(gatherSeconds = 5, dayDiscussionSeconds = 90, dayVoteSeconds = 60, nightSeconds = 45)
         }
         assertFailsWith<IllegalArgumentException> {
-            GameSettings(gatherSeconds = 120, dayDiscussionSeconds = 10, dayVoteSeconds = 60, nightSeconds = 45)
+            GameSettings(gatherSeconds = 120, dayDiscussionSeconds = 9, dayVoteSeconds = 60, nightSeconds = 45)
         }
     }
 
@@ -58,7 +58,7 @@ class GameSettingsTest {
         val night = CallbackData.NightTarget(gameId = 7, targetId = -42)
         assertEquals(night, CallbackData.decode(CallbackData.encode(night)))
         assertEquals(null, CallbackData.decode("garbage"))
-        val bots = CallbackData.SettingsBots(chatId = -1001, delta = -1)
-        assertEquals(bots, CallbackData.decode(CallbackData.encode(bots)))
+        val leave = CallbackData.LobbyLeave(chatId = -1001)
+        assertEquals(leave, CallbackData.decode(CallbackData.encode(leave)))
     }
 }

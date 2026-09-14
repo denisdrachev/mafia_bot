@@ -8,10 +8,10 @@ enum class SettingKey(
     val min: Int,
     val max: Int
 ) {
-    GATHER("gather", "Длительность сбора игроков", 30, 600),
-    DAY("day", "Длительность дневного обсуждения", 20, 600),
-    VOTE("vote", "Длительность дневного голосования", 15, 300),
-    NIGHT("night", "Длительность ночного выбора", 15, 300);
+    GATHER("gather", "Длительность сбора игроков", 10, 600),
+    DAY("day", "Длительность дневного обсуждения", 10, 600),
+    VOTE("vote", "Длительность дневного голосования", 10, 300),
+    NIGHT("night", "Длительность ночного выбора", 10, 300);
 
     fun validate(seconds: Int) {
         require(seconds in min..max) { "«$title»: допустимо от $min до $max секунд" }
@@ -50,7 +50,7 @@ data class GameSettings(
     val believerWindowSeconds: Int get() = BELIEVER_WINDOW_SECONDS
 
     companion object {
-        const val BELIEVER_WINDOW_SECONDS = 10
+        const val BELIEVER_WINDOW_SECONDS = 5
         const val MIN_BOTS = 0
         const val MAX_BOTS = 12
 

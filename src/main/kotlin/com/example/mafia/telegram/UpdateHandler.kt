@@ -53,50 +53,6 @@ class UpdateHandler(
             is CallbackData.DayTarget -> withSession(query.id, data.gameId) {
                 it.onDayTarget(user.id, query.id, data.targetId)
             }
-
-            is CallbackData.SettingsBots -> changeBotCount(
-                chatId = data.chatId,
-                userId = user.id,
-                delta = data.delta,
-                messageId = query.message?.messageId,
-                callbackQueryId = query.id
-            )
-        }
-    }
-
-    private suspend fun changeBotCount(
-        chatId: Long,
-        userId: Long,
-        delta: Int,
-        messageId: Int?,
-        callbackQueryId: String
-    ) {
-        val current = settingsService.settings(chatId)
-        if (delta == 0) {
-            gateway.answerCallback(callbackQueryId, "Ботов в игре: ${current.botCount}")
-            return
-        }
-        if (!gateway.isChatAdmin(chatId, userId)) {
-            gateway.answerCallback(callbackQueryId, "Менять настройки могут только админы группы.", alert = true)
-            return
-        }
-        val target = current.botCount + delta
-        if (target !in GameSettings.MIN_BOTS..GameSettings.MAX_BOTS) {
-            gateway.answerCallback(
-                callbackQueryId,
-                "Допустимо от ${GameSettings.MIN_BOTS} до ${GameSettings.MAX_BOTS} ботов."
-            )
-            return
-        }
-        val updated = settingsService.setBotCount(chatId, target)
-        gateway.answerCallback(callbackQueryId, "Ботов в игре: ${updated.botCount}")
-        if (messageId != null) {
-            gateway.editGroupMessage(
-                chatId = chatId,
-                messageId = messageId,
-                text = settingsText(updated),
-                markup = Keyboards.settings(chatId, updated.botCount)
-            )
         }
     }
 
@@ -148,7 +104,7 @@ class UpdateHandler(
                 gateway.sendGroupMessage(chatId, manager.cancel(chatId))
             }
             "settings" -> showSettings(chatId, chatTitle)
-            "set" -> ifAdmin(chatId, user.id) { applySetting(chatId, chatTitle, args) }
+            "set" -> ifAdmin(chatId, user.id) { applySetting(chatId, args) }
             "roles" -> ifAdmin(chatId, user.id) { applyRoles(chatId, args) }
             "stats" -> gateway.sendGroupMessage(chatId, statsText(chatId))
             else -> Unit
@@ -168,7 +124,7 @@ class UpdateHandler(
 
     private suspend fun showSettings(chatId: Long, chatTitle: String?) {
         val settings = settingsService.settings(chatId, chatTitle)
-        gateway.sendGroupMessage(chatId, settingsText(settings), Keyboards.settings(chatId, settings.botCount))
+        gateway.sendGroupMessage(chatId, settingsText(settings))
     }
 
     private suspend fun startGathering(chatId: Long, chatTitle: String?, user: User) {
@@ -176,23 +132,44 @@ class UpdateHandler(
         manager.openLobby(chatId, chatTitle, user.toPlayerRef(), settings)
     }
 
-    private suspend fun applySetting(chatId: Long, chatTitle: String?, args: List<String>) {
+    private suspend fun applySetting(chatId: Long, args: List<String>) {
         if (args.size < 2) {
             gateway.sendGroupMessage(
                 chatId,
-                "Формат: <code>/set &lt;параметр&gt; &lt;секунды&gt;</code>\n" +
-                    "Параметры: " + SettingKey.entries.joinToString { it.alias }
+                "Формат: <code>/set &lt;параметр&gt; &lt;значение&gt;</code>\n" +
+                    "Параметры: " + SettingKey.entries.joinToString { it.alias } + ", bots"
             )
+            return
+        }
+        if (args[0].equals("bots", ignoreCase = true)) {
+            applyBotCount(chatId, args[1])
             return
         }
         val key = SettingKey.byAlias(args[0])
         val seconds = args[1].toIntOrNull()
         if (key == null || seconds == null) {
-            gateway.sendGroupMessage(chatId, "⚠️ Не понял параметр. Доступны: " + SettingKey.entries.joinToString { it.alias })
+            gateway.sendGroupMessage(
+                chatId,
+                "⚠️ Не понял параметр. Доступны: " + SettingKey.entries.joinToString { it.alias } + ", bots"
+            )
             return
         }
         try {
             val updated = settingsService.update(chatId, key, seconds)
+            gateway.sendGroupMessage(chatId, "✅ Настройка обновлена.\n\n" + settingsText(updated))
+        } catch (ex: IllegalArgumentException) {
+            gateway.sendGroupMessage(chatId, "⚠️ ${ex.message}")
+        }
+    }
+
+    private suspend fun applyBotCount(chatId: Long, rawCount: String) {
+        val count = rawCount.toIntOrNull()
+        if (count == null) {
+            gateway.sendGroupMessage(chatId, "⚠️ Укажите число ботов, например: <code>/set bots 3</code>")
+            return
+        }
+        try {
+            val updated = settingsService.setBotCount(chatId, count)
             gateway.sendGroupMessage(chatId, "✅ Настройка обновлена.\n\n" + settingsText(updated))
         } catch (ex: IllegalArgumentException) {
             gateway.sendGroupMessage(chatId, "⚠️ ${ex.message}")
@@ -270,7 +247,7 @@ class UpdateHandler(
         )
         appendLine()
         appendLine("Изменить тайминги: <code>/set ${SettingKey.DAY.alias} 120</code>")
-        appendLine("Количество ботов меняется кнопками ниже (только админы).")
+        appendLine("Изменить количество ботов: <code>/set bots 3</code> (только админы)")
     }
 
     private fun rolesText(settings: GameSettings): String = buildString {

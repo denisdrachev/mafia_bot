@@ -17,12 +17,12 @@ data class BotProperties(
 )
 
 data class DefaultsProperties(
-    val gatherSeconds: Int = 120,
-    val dayDiscussionSeconds: Int = 90,
-    val dayVoteSeconds: Int = 60,
-    val nightSeconds: Int = 45,
+    val gatherSeconds: Int = 10,
+    val dayDiscussionSeconds: Int = 10,
+    val dayVoteSeconds: Int = 10,
+    val nightSeconds: Int = 10,
     /** How many bot players are added to every new game by default. */
-    val botCount: Int = 0
+    val botCount: Int = 3
 )
 
 data class RolesProperties(
