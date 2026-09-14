@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mafia-postgres
+    environment:
+      POSTGRES_DB: mafia
+      POSTGRES_USER: mafia
+      POSTGRES_PASSWORD: mafia
+    ports:
+      - "5432:5432"
+    volumes:
+      - mafia-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U mafia -d mafia" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mafia-pgdata:

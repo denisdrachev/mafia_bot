@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: mafia-bot
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/mafia}
+    username: ${DB_USERNAME:mafia}
+    password: ${DB_PASSWORD:mafia}
+    hikari:
+      maximum-pool-size: 10
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    tags:
+      application: mafia-bot
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+mafia:
+  bot:
+    token: "8789997945:AAE6v34hQ06n1LKgBeyYXEh7WYXBneTLT_w" #${TELEGRAM_BOT_TOKEN:}
+    username: "IiMafoBot" #${TELEGRAM_BOT_USERNAME:}
+  defaults:
+    gather-seconds: 120
+    day-discussion-seconds: 90
+    day-vote-seconds: 60
+    night-seconds: 45
+    # Bot players added to every new game by default; changed per group via /settings buttons.
+    bot-count: 0
+  roles:
+    # Configurable "player count -> extra roles" table. Every remaining seat becomes a civilian.
+    tables:
+      - min-players: 3
+        max-players: 3
+        roles: [ MAFIA_KILLER, MASOCHIST ]
+      - min-players: 4
+        max-players: 6
+        roles: [ MAFIA_KILLER, DOCTOR, COMMISSAR ]
+      - min-players: 7
+        max-players: 9
+        roles: [ MAFIA_KILLER, MAFIA_BOSS, DOCTOR, COMMISSAR, PROSTITUTE ]
+      - min-players: 10
+        roles: [ MAFIA_KILLER, MAFIA_BOSS, DOCTOR, COMMISSAR, PROSTITUTE, MANIAC, MASOCHIST, BELIEVER ]
+    # Result of the commissar check. Override here if a role should (not) be able to kill.
+    can-kill:
+      MAFIA_KILLER: true
+      MANIAC: true
+      MAFIA_BOSS: false
+      COMMISSAR: false
+
+logging:
+  level:
+    com.example.mafia: DEBUG
+    org.telegram: DEBUG
+    root: INFO
+#    root: DEBUG
+
+#telegram:
+#  bot:
+#    api-url: https://shy-bonus-c3df.matcha0aamxqo91.workers.dev
+#telegram:
+#  proxy:
+#    type: HTTP        # HTTP, SOCKS4 или SOCKS5
+#    host: shy-bonus-c3df.matcha0aamxqo91.workers.dev     # адрес прокси
+#    port: 443          # порт
+    # Если нужна аутентификация:
+    # user: proxyuser
+    # password: proxypass
